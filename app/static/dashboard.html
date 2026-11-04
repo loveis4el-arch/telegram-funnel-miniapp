@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Воронка регистраций</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  :root {
+    --bg: var(--tg-theme-bg-color, #ffffff);
+    --text: var(--tg-theme-text-color, #1c1c1e);
+    --hint: var(--tg-theme-hint-color, #8e8e93);
+    --card: var(--tg-theme-secondary-bg-color, #f2f2f7);
+    --accent: var(--tg-theme-button-color, #2481cc);
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; background: var(--bg); color: var(--text);
+         font: 15px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .sub { color: var(--hint); font-size: 13px; margin-bottom: 16px; }
+  .kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 16px; }
+  .kpi { background: var(--card); border-radius: 12px; padding: 10px; }
+  .kpi b { display: block; font-size: 22px; }
+  .kpi span { color: var(--hint); font-size: 12px; }
+  .step { margin-bottom: 12px; }
+  .row { display: flex; justify-content: space-between; font-size: 14px; margin-bottom: 4px; }
+  .row .pct { color: var(--hint); }
+  .bar { height: 10px; background: var(--card); border-radius: 6px; overflow: hidden; }
+  .bar i { display: block; height: 100%; background: var(--accent); border-radius: 6px; transition: width .4s; }
+  h2 { font-size: 16px; margin: 20px 0 8px; }
+  ul { list-style: none; padding: 0; margin: 0; }
+  li { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--card); font-size: 13px; }
+  li time { color: var(--hint); }
+  .err { color: #d33; }
+</style>
+</head>
+<body>
+  <h1 id="title">Воронка регистраций</h1>
+  <div class="sub" id="updated">загрузка…</div>
+  <div class="kpis">
+    <div class="kpi"><b id="today">–</b><span>новых сегодня</span></div>
+    <div class="kpi"><b id="pending">–</b><span>ждут отправки</span></div>
+    <div class="kpi"><b id="failed">–</b><span>не доставлено</span></div>
+  </div>
+  <div id="funnel"></div>
+  <h2>Последние события</h2>
+  <ul id="recent"></ul>
+<script>
+  const tg = window.Telegram && Telegram.WebApp;
+  if (tg) { tg.ready(); tg.expand(); }
+  const NAMES = { start: "нажал /start", phone: "дал телефон" };
+  let TITLES = {};
+  const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const name = e => NAMES[e] || (e.startsWith("click:") ? "нажал «" + (TITLES["btn:" + e.slice(6)] || e.slice(6)) + "»" : e.startsWith("sent:") ? "получил «" + (TITLES[e.slice(5)] || e.slice(5)) + "»" : e.startsWith("failed:") ? "не доставлено «" + (TITLES[e.slice(7)] || e.slice(7)) + "»" : e);
+
+  async function load() {
+    try {
+      const r = await fetch("api/stats", { headers: { "X-Telegram-Init-Data": tg ? tg.initData : "" } });
+      if (!r.ok) throw new Error((await r.json()).detail || r.status);
+      const d = await r.json();
+      TITLES = d.titles || {};
+      document.getElementById("title").textContent = d.title;
+      document.getElementById("today").textContent = d.started_today;
+      document.getElementById("pending").textContent = d.pending;
+      document.getElementById("failed").textContent = d.failed;
+      const top = Math.max(1, d.funnel[0].count);
+      document.getElementById("funnel").innerHTML = d.funnel.map((s, i) => `
+        <div class="step">
+          <div class="row"><span>${esc(s.label)}</span><span><b>${s.count}</b> <span class="pct">${i ? s.from_prev + "% от пред." : ""}</span></span></div>
+          <div class="bar"><i style="width:${100 * s.count / top}%"></i></div>
+        </div>`).join("");
+      document.getElementById("recent").innerHTML = d.recent.map(e =>
+        `<li><span>${esc(e.who)} — ${esc(name(e.event))}</span><time>${new Date(e.at).toLocaleTimeString("ru-RU")}</time></li>`).join("") || "<li>пока пусто</li>";
+      document.getElementById("updated").textContent = "обновлено " + new Date().toLocaleTimeString("ru-RU") + " · раз в 5 с";
+    } catch (e) {
+      document.getElementById("updated").innerHTML = '<span class="err">ошибка: ' + esc(e.message) + "</span>";
+    }
+  }
+  load();
+  setInterval(load, 5000);
+</script>
+</body>
+</html>
